@@ -1,2 +1,4 @@
 .env
 config/config.ini
+mandats.json
+config/__pycache__/credentials.cpython-311.pyc
