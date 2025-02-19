@@ -20,7 +20,7 @@ class PortalScraper:
         self.credentials = self.credentials_manager.get_credentials()
         self.login_url = "https://laruche.polymtl.ca/sp/ssp/r/etudiant/recherche-mandats?p40_type_recherche=C&session=4571910543658"
         self.driver = None
-        self.wait_time = 10
+        self.wait_time = 6
         self.mandats_file = "mandats.json"
         self.processed_mandats = self.load_processed_mandats()
 
@@ -36,43 +36,49 @@ class PortalScraper:
         try:
             # Accéder à la page de login
             self.driver.get(self.login_url)
+            time.sleep(3)  # Attendre le chargement initial
+            
+            # Définir les XPath
+            username_xpath = "/html/body/div[3]/main/div/div[2]/section/div/div[2]/form/h3/section[1]/div/label/input"
+            password_xpath = "/html/body/div[3]/main/div/div[2]/section/div/div[2]/form/h3/section[2]/div/div[1]/label/input"
+            login_button_xpath = "/html/body/div[3]/main/div/div[2]/section/div/div[2]/form/h3/div[1]/button"
             
             # Attendre que les éléments soient présents
             wait = WebDriverWait(self.driver, self.wait_time)
             
             # Trouver et remplir le champ username
             username_field = wait.until(
-                EC.presence_of_element_located((By.ID, "username"))
+                EC.presence_of_element_located((By.XPATH, username_xpath))
             )
             username_field.clear()
+            time.sleep(0.5)
             username_field.send_keys(self.credentials['username'])
 
+            
             # Trouver et remplir le champ password
             password_field = wait.until(
-                EC.presence_of_element_located((By.ID, "password"))
+                EC.presence_of_element_located((By.XPATH, password_xpath))
             )
             password_field.clear()
+            time.sleep(0.5)
             password_field.send_keys(self.credentials['password'])
 
+            
             # Trouver et cliquer sur le bouton de connexion
             login_button = wait.until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[name='submit']"))
+                EC.element_to_be_clickable((By.XPATH, login_button_xpath))
             )
+            time.sleep(0.5)
             login_button.click()
-
-            # Vérifier si la connexion a réussi (attendre la redirection ou un élément de la page suivante)
+            
+            # Vérifier si la connexion a réussi
             try:
-                # Attendre que l'URL change ou qu'un élément de la page suivante apparaisse
+                # Attendre que l'URL change
                 wait.until(lambda driver: driver.current_url != self.login_url)
                 print("Connexion réussie!")
                 return True
             except TimeoutException:
-                # Vérifier s'il y a des messages d'erreur
-                error_messages = self.driver.find_elements(By.CLASS_NAME, "errors")
-                if error_messages:
-                    print(f"Erreur de connexion: {error_messages[0].text}")
-                else:
-                    print("La connexion a échoué")
+                print("La connexion a échoué")
                 return False
 
         except Exception as e:
@@ -219,20 +225,29 @@ class PortalScraper:
                 self.driver.get(self.login_url)
                 time.sleep(3)
             
-            # Attendre que le tableau soit chargé
-            table_xpath = "//table[contains(@class, 'mandats')]"
-            wait.until(EC.presence_of_element_located((By.XPATH, table_xpath)))
+            # Attendre que le tableau soit chargé - utiliser un XPath plus spécifique
+            table_rows = wait.until(EC.presence_of_all_elements_located(
+                (By.XPATH, "//tr[.//a[contains(@href, 'mandat')]]")
+            ))
             
-            # Stocker tous les liens et leurs URLs avant de commencer la navigation
             links = []
-            elements = self.driver.find_elements(By.XPATH, f"{table_xpath}//a[contains(@href, 'mandat')]")
-            for element in elements:
+            for row in table_rows:
                 try:
-                    href = element.get_attribute('href')
-                    text = element.text
+                    # Trouver le lien dans la colonne "Titre du poste"
+                    link_element = row.find_element(By.XPATH, ".//a[contains(@href, 'mandat')]")
+                    code_mandat = row.find_element(By.XPATH, "./td[1]").text.strip()
+                    
+                    href = link_element.get_attribute('href')
+                    text = link_element.text
+                    
                     if href and text:
-                        links.append({'url': href, 'text': text})
-                except:
+                        links.append({
+                            'url': href,
+                            'text': text,
+                            'code': code_mandat
+                        })
+                except Exception as e:
+                    print(f"Erreur lors de l'extraction d'un lien: {e}")
                     continue
             
             print(f"Nombre de mandats trouvés : {len(links)}")
@@ -243,19 +258,18 @@ class PortalScraper:
             # Parcourir les liens stockés
             for index, link_data in enumerate(links, 1):
                 try:
-                    print(f"\nTraitement du mandat {index}/{len(links)}: {link_data['text']}")
-                    
-                    # Extraire le code du mandat de l'URL
-                    code_mandat = link_data['url'].split("mandat=")[-1].split("&")[0]
+                    code_mandat = link_data['code']
                     
                     if code_mandat in self.processed_mandats:
                         print(f"Mandat {code_mandat} déjà traité, passage au suivant...")
                         continue
                     
+                    print(f"\nTraitement du mandat {index}/{len(links)}: {link_data['text']}")
+                    
                     # Naviguer vers la page du mandat
-                    print(f"Navigation vers {link_data['url']}")
-                    self.driver.execute_script(f"window.location.href = '{link_data['url']}';")
-                    time.sleep(3)
+                    print(f"Navigation vers le mandat {code_mandat}")
+                    self.driver.get(link_data['url'])
+                    time.sleep(2)
                     
                     # Vérifier que la navigation a réussi
                     if "mandat=" in self.driver.current_url:
@@ -268,22 +282,18 @@ class PortalScraper:
                         
                         # Retourner à la page principale
                         print("Retour à la page principale...")
-                        self.driver.execute_script(f"window.location.href = '{main_page_url}';")
-                        time.sleep(3)
-                        
-                        # Attendre que le tableau soit rechargé
-                        wait.until(EC.presence_of_element_located((By.XPATH, table_xpath)))
+                        self.driver.get(main_page_url)
+                        time.sleep(2)
                     else:
                         print("Échec de la navigation vers le mandat")
                         self.driver.get(main_page_url)
-                        time.sleep(3)
+                        time.sleep(2)
                     
                 except Exception as e:
                     print(f"Erreur lors du traitement du mandat {index}: {str(e)}")
-                    # Tenter de revenir à la page principale
                     try:
                         self.driver.get(main_page_url)
-                        time.sleep(3)
+                        time.sleep(2)
                     except:
                         print("Erreur lors du retour à la page principale")
                     continue
@@ -347,6 +357,34 @@ class PortalScraper:
             
         except Exception as e:
             print(f"Erreur lors du nettoyage du fichier JSON: {str(e)}")
+
+    def clean_text(self, text):
+        """Nettoie le texte des problèmes d'encodage multiples"""
+        if not isinstance(text, str):
+            return text
+            
+        try:
+            # Décoder les HTML entities
+            text = html.unescape(text)
+            
+            # Essayer de corriger l'encodage
+            encodings = ['utf-8', 'latin1', 'iso-8859-1']
+            for enc in encodings:
+                try:
+                    text = text.encode(enc).decode('utf-8')
+                    break
+                except:
+                    continue
+            
+            # Nettoyer les espaces et caractères de contrôle
+            text = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', text)
+            text = re.sub(r'\s+', ' ', text)
+            
+            return text.strip()
+            
+        except Exception as e:
+            print(f"Erreur lors du nettoyage du texte: {str(e)}")
+            return text
 
 def main():
     scraper = PortalScraper()
