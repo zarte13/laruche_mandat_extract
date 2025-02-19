@@ -2,3 +2,8 @@
 config/config.ini
 mandats.json
 config/__pycache__/credentials.cpython-311.pyc
+.vscode/launch.json
+mandats_filtered.json
+lettres_motivation.json
+ttf/DejaVuSans-Oblique.ttf
+ttf/DejaVuSans-Bold.ttf
