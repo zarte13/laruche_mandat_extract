@@ -146,30 +146,30 @@ class PortalScraper:
             # Fonction helper pour extraire le texte après un label
             def extract_after_label(label):
                 try:
-                    # Trouver l'élément contenant le label
-                    xpath = f"//*[contains(text(), '{label}:')]"
-                    elements = self.driver.find_elements(By.XPATH, xpath)
+                    # Construction du XPath pour trouver le label et son contenu
+                    xpath = f"//label[contains(text(), '{label}')]/../..//span[contains(@class, 'display_only')]"
+                    element = wait.until(EC.presence_of_element_located((By.XPATH, xpath)))
                     
-                    for element in elements:
-                        # Obtenir le texte brut via JavaScript
-                        sibling_element = element.find_element(By.XPATH, "following-sibling::*")
-                        raw_text = self.driver.execute_script(
-                            "return arguments[0].textContent;", 
-                            sibling_element
-                        )
+                    if element:
+                        # Obtenir le texte
+                        text = element.get_attribute('innerText') or element.text
+                        return text.strip()
                         
-                        if raw_text:
-                            # Nettoyer le texte
-                            clean = raw_text.strip()
-                            # Supprimer tous les caractères non-imprimables sauf les sauts de ligne
-                            clean = ''.join(char for char in clean if char.isprintable() or char == '\n')
-                            return clean
                 except Exception as e:
                     print(f"Erreur lors de l'extraction pour {label}: {str(e)}")
-                    return ''
+                    
+                    # Essayer une approche alternative
+                    try:
+                        alt_xpath = f"//label[contains(text(), '{label}')]/../following-sibling::div//span"
+                        element = self.driver.find_element(By.XPATH, alt_xpath)
+                        if element:
+                            return element.get_attribute('innerText') or element.text.strip()
+                    except:
+                        pass
+                        
                 return ''
 
-            # Mapping des champs
+            # Mapping des champs avec leurs labels exacts
             fields = {
                 'etat_mandat': 'État du mandat',
                 'date_limite': 'Date limite pour postuler',
@@ -192,29 +192,30 @@ class PortalScraper:
 
             # Extraire chaque champ
             for field, label in fields.items():
-                details[field] = extract_after_label(label)
+                value = extract_after_label(label)
+                if value:
+                    details[field] = self.clean_text(value)
+                else:
+                    details[field] = ''
+
+            # Cas spécial pour le site web qui pourrait être dans un lien
+            try:
+                site_web_xpath = "//label[contains(text(), 'Site Web')]/../following-sibling::div//a"
+                site_web_element = self.driver.find_element(By.XPATH, site_web_xpath)
+                if site_web_element:
+                    details['site_web'] = site_web_element.get_attribute('href')
+            except:
+                pass
 
             # Ajouter l'URL
             details['url'] = self.driver.current_url
-
-            # Vérifier si les données sont cohérentes
-            for field, value in details.items():
-                if 'ÃƒÆ' in value or 'Ã¢â‚¬' in value:
-                    print(f"Attention: Possible problème d'encodage dans {field}")
-                    # Tentative de nettoyage supplémentaire
-                    try:
-                        # Essayer de décoder/encoder plusieurs fois si nécessaire
-                        cleaned = value.encode('latin1').decode('utf-8')
-                        details[field] = cleaned
-                    except:
-                        pass
 
             return details
 
         except Exception as e:
             print(f"Erreur lors de l'extraction des détails: {str(e)}")
             return {}
-        
+            
     def extract_mandats(self):
         try:
             wait = WebDriverWait(self.driver, self.wait_time)
