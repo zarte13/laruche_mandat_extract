@@ -5,3 +5,4 @@ config/__pycache__/credentials.cpython-311.pyc
 .vscode/launch.json
 mandats_filtered.json
 lettres_motivation.json
+lettres_de_motivation
